@@ -29,6 +29,19 @@ CREATE INDEX IF NOT EXISTS idx_events_slug ON events(slug);
 CREATE INDEX IF NOT EXISTS idx_events_event ON events(event);
 `);
 
+db.exec(`
+CREATE TABLE IF NOT EXISTS evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL,
+  market_json TEXT NOT NULL,
+  resolution_url TEXT,
+  resolution_html TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_slug_created ON evidence (slug, created_at);
+`);
+
+
 type TrackEvent = {
   event: "impression" | "click";
   slug?: string;
@@ -160,4 +173,179 @@ export function getStats(days = 7, pub?: string, article?: string) {
     bySlug,
     recent,
   };
+}
+
+
+export function insertEvidence(row: {
+  slug: string;
+  market_json: string;
+  resolution_url?: string | null;
+  resolution_html?: string | null;
+  created_at: number;
+}) {
+  const stmt = db.prepare(`
+    INSERT INTO evidence (slug, market_json, resolution_url, resolution_html, created_at)
+    VALUES (@slug, @market_json, @resolution_url, @resolution_html, @created_at)
+  `);
+  return stmt.run({
+    slug: row.slug,
+    market_json: row.market_json,
+    resolution_url: row.resolution_url ?? null,
+    resolution_html: row.resolution_html ?? null,
+    created_at: row.created_at,
+  });
+}
+
+export function listEvidenceBySlug(slug: string, limit = 20) {
+  const stmt = db.prepare(`
+    SELECT id, slug, resolution_url, created_at, market_json
+    FROM evidence
+    WHERE slug = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+  return stmt.all(slug, limit);
+}
+
+export function getEvidenceById(id: number) {
+  const stmt = db.prepare(`
+    SELECT *
+    FROM evidence
+    WHERE id = ?
+  `);
+  return stmt.get(id);
+}
+
+
+// --- DisputeShield watch + alerts ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS market_watch (
+  slug TEXT PRIMARY KEY,
+  question TEXT,
+  last_resolution_source TEXT,
+  last_active INTEGER,
+  last_closed INTEGER,
+  last_updated_at TEXT,
+  last_checked INTEGER,
+  last_market_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  old_value TEXT,
+  new_value TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_slug_created ON alerts (slug, created_at);
+`);
+
+export function listDistinctEvidenceSlugs(limit = 500) {
+  const stmt = db.prepare(`
+    SELECT DISTINCT slug
+    FROM evidence
+    ORDER BY slug
+    LIMIT ?
+  `);
+  const rows = stmt.all(limit) as any[];
+  return rows.map(r => r.slug);
+}
+
+export function getWatchRow(slug: string) {
+  const stmt = db.prepare(`
+    SELECT *
+    FROM market_watch
+    WHERE slug = ?
+  `);
+  return stmt.get(slug);
+}
+
+export function upsertWatchRow(row: {
+  slug: string;
+  question?: string | null;
+  last_resolution_source?: string | null;
+  last_active?: number | null;
+  last_closed?: number | null;
+  last_updated_at?: string | null;
+  last_checked: number;
+  last_market_json?: string | null;
+}) {
+  const stmt = db.prepare(`
+    INSERT INTO market_watch (
+      slug, question, last_resolution_source, last_active, last_closed, last_updated_at, last_checked, last_market_json
+    ) VALUES (
+      @slug, @question, @last_resolution_source, @last_active, @last_closed, @last_updated_at, @last_checked, @last_market_json
+    )
+    ON CONFLICT(slug) DO UPDATE SET
+      question = excluded.question,
+      last_resolution_source = excluded.last_resolution_source,
+      last_active = excluded.last_active,
+      last_closed = excluded.last_closed,
+      last_updated_at = excluded.last_updated_at,
+      last_checked = excluded.last_checked,
+      last_market_json = excluded.last_market_json
+  `);
+
+  return stmt.run({
+    slug: row.slug,
+    question: row.question ?? null,
+    last_resolution_source: row.last_resolution_source ?? null,
+    last_active: row.last_active ?? null,
+    last_closed: row.last_closed ?? null,
+    last_updated_at: row.last_updated_at ?? null,
+    last_checked: row.last_checked,
+    last_market_json: row.last_market_json ?? null,
+  });
+}
+
+export function insertAlert(row: {
+  slug: string;
+  kind: string;
+  old_value?: string | null;
+  new_value?: string | null;
+  created_at: number;
+}) {
+  const stmt = db.prepare(`
+    INSERT INTO alerts (slug, kind, old_value, new_value, created_at)
+    VALUES (@slug, @kind, @old_value, @new_value, @created_at)
+  `);
+  return stmt.run({
+    slug: row.slug,
+    kind: row.kind,
+    old_value: row.old_value ?? null,
+    new_value: row.new_value ?? null,
+    created_at: row.created_at,
+  });
+}
+
+export function listAlerts(slug?: string | null, limit = 50) {
+  if (slug) {
+    const stmt = db.prepare(`
+      SELECT id, slug, kind, old_value, new_value, created_at
+      FROM alerts
+      WHERE slug = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(slug, limit);
+  }
+
+  const stmt = db.prepare(`
+    SELECT id, slug, kind, old_value, new_value, created_at
+    FROM alerts
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+  return stmt.all(limit);
+}
+
+export function countAlertsForSlug(slug: string) {
+  const stmt = db.prepare(`
+    SELECT COUNT(*) as c
+    FROM alerts
+    WHERE slug = ?
+  `);
+  return (stmt.get(slug) as any)?.c ?? 0;
 }
