@@ -1,48 +1,24 @@
 import { NextResponse } from "next/server";
 
-type Params = { slug?: string };
+export const runtime = "nodejs";
 
-function normalizeToSlug(input: string) {
-  let s = (input || "").trim();
-
-  try {
-    if (s.startsWith("http://") || s.startsWith("https://")) s = new URL(s).pathname;
-  } catch {}
-
-  s = s.split("?")[0].split("#")[0];
-  const parts = s.split("/").filter(Boolean);
-  if (!parts.length) return "";
-
-  if (parts[0] === "event" && parts[1]) return parts[1];
-  if (parts[0] === "market" && parts[1]) return parts[1];
-
-  return parts[parts.length - 1];
-}
-
-function buildRedirect(req: Request, rawSlug: string) {
+function buildRedirect(req: Request, slug: string) {
   const url = new URL(req.url);
-  const dest = new URL("/", url.origin);
-
-  // keep any existing query params (pub/article/etc)
-  url.searchParams.forEach((v, k) => dest.searchParams.set(k, v));
-
-  const slug = normalizeToSlug(rawSlug);
-
-  if (slug && slug !== "undefined" && slug !== "null") {
-    dest.searchParams.set("slug", slug);
-  } else {
-    dest.searchParams.delete("slug");
-  }
-
-  return NextResponse.redirect(dest, 307);
+  const pub = url.searchParams.get("pub") || "";
+  const article = url.searchParams.get("article") || "";
+  const to = new URL("/", url.origin);
+  if (pub) to.searchParams.set("pub", pub);
+  if (article) to.searchParams.set("article", article);
+  if (slug) to.searchParams.set("slug", slug);
+  return NextResponse.redirect(to.toString(), 307);
 }
 
-export async function GET(req: Request, ctx: { params: Promise<Params> }) {
-  const p = await ctx.params;
-  return buildRedirect(req, p?.slug || "");
+export async function GET(req: Request, ctx: { params: Promise<{ slug?: string }> }) {
+  const { slug = "" } = await ctx.params;
+  return buildRedirect(req, slug);
 }
 
-export async function HEAD(req: Request, ctx: { params: Promise<Params> }) {
-  const p = await ctx.params;
-  return buildRedirect(req, p?.slug || "");
+export async function HEAD(req: Request, ctx: { params: Promise<{ slug?: string }> }) {
+  const { slug = "" } = await ctx.params;
+  return buildRedirect(req, slug);
 }
