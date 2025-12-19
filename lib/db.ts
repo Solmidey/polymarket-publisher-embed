@@ -349,3 +349,21 @@ export function countAlertsForSlug(slug: string) {
   `);
   return (stmt.get(slug) as any)?.c ?? 0;
 }
+
+export function deleteAlertsByKind(kind: string) {
+  const stmt = db.prepare(`
+    DELETE FROM alerts
+    WHERE kind = ?
+  `);
+  return stmt.run(kind);
+}
+
+
+export function countEvidenceBySlug(slug: string) {
+  const stmt = db.prepare(`
+    SELECT COUNT(*) as c
+    FROM evidence
+    WHERE slug = ?
+  `);
+  return (stmt.get(slug) as any)?.c ?? 0;
+}
