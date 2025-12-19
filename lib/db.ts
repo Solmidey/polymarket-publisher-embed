@@ -367,3 +367,14 @@ export function countEvidenceBySlug(slug: string) {
   `);
   return (stmt.get(slug) as any)?.c ?? 0;
 }
+
+export function listAlertsBySlug(slug: string, limit = 50) {
+  const stmt = db.prepare(`
+    SELECT id, slug, kind, old_value, new_value, created_at
+    FROM alerts
+    WHERE slug = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+  return stmt.all(slug, limit);
+}

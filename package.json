@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build:embed": "esbuild embed-src/polymarket.js --bundle --format=iife --platform=browser --target=es2017 --minify --outfile=public/embed/polymarket.js",
+    "prebuild": "npm run build:embed"
   },
   "dependencies": {
     "better-sqlite3": "^12.5.0",
