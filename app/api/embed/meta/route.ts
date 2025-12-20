@@ -12,14 +12,12 @@ async function fetchMarket(slug: string) {
 }
 
 function computeRisk(market: any) {
-  // Simple, stable heuristic (you can refine later)
   let score = 0;
 
   const restricted = market?.restricted === true;
   const closed = market?.closed === true;
   const resolutionSourceEmpty = !String(market?.resolutionSource || "").trim();
 
-  // End date (from events[0].endDate if present)
   const endDate = (() => {
     const e0 = Array.isArray(market?.events) ? market.events[0] : null;
     return e0?.endDate || market?.endDate || null;
@@ -47,11 +45,15 @@ export async function GET(req: Request) {
   const slug = String(url.searchParams.get("slug") || "").trim();
   if (!slug) return NextResponse.json({ error: "Missing slug" }, { status: 400 });
 
-  const market = await fetchMarket(slug);
+  // run in parallel
+  const [market, evidenceCount] = await Promise.all([
+    fetchMarket(slug),
+    countEvidenceBySlug(slug),
+  ]);
+
   if (!market) return NextResponse.json({ error: "Market not found" }, { status: 404 });
 
   const risk = computeRisk(market);
-  const evidenceCount = countEvidenceBySlug(slug);
 
   return NextResponse.json({
     slug,

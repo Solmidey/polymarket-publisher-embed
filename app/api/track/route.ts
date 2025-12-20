@@ -16,8 +16,8 @@ function sign(payload: string, secret: string) {
 
 function verifyToken(pub: string, token: string, secret: string) {
   try {
-    const [b64, sig] = (token || "").split(".");
-    if (!b64 || !sig) return false;
+    const [b64, sigHex] = (token || "").split(".");
+    if (!b64 || !sigHex) return false;
 
     const payload = Buffer.from(b64, "base64url").toString("utf8"); // pub:issuedAt
     const [tPub, issuedAtStr] = payload.split(":");
@@ -30,8 +30,15 @@ function verifyToken(pub: string, token: string, secret: string) {
     const maxAge = 30 * 24 * 60 * 60 * 1000;
     if (Date.now() - issuedAt > maxAge) return false;
 
-    const expected = sign(payload, secret);
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig));
+    if (!/^[0-9a-fA-F]+$/.test(sigHex)) return false;
+
+    const expectedHex = sign(payload, secret);
+
+    const sigBuf = Buffer.from(sigHex, "hex");
+    const expBuf = Buffer.from(expectedHex, "hex");
+    if (sigBuf.length !== expBuf.length) return false;
+
+    return crypto.timingSafeEqual(expBuf, sigBuf);
   } catch {
     return false;
   }
@@ -44,45 +51,63 @@ export async function OPTIONS() {
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
 
-  // Origin allowlist (blocks other sites from posting stats)
+  // Origin allowlist (optional)
   const allowed = (process.env.ALLOWED_ORIGINS || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
   if (allowed.length) {
-    const origin = req.headers.get("origin") || "";
+    const origin = (req.headers.get("origin") || "").trim();
     if (!origin || !allowed.includes(origin)) {
-      return NextResponse.json({ ok: false, error: "Origin not allowed" }, { status: 403, headers: cors });
+      return NextResponse.json(
+        { ok: false, error: "Origin not allowed" },
+        { status: 403, headers: cors }
+      );
     }
   }
 
-
   const event = body?.event;
   if (event !== "impression" && event !== "click") {
-    return NextResponse.json({ ok: false, error: "Invalid event" }, { status: 400, headers: cors });
+    return NextResponse.json(
+      { ok: false, error: "Invalid event" },
+      { status: 400, headers: cors }
+    );
   }
 
-  const pub = String(body?.pub || "unknown");
-  const token = String(body?.token || "");
-  const secret = process.env.EMBED_SIGNING_SECRET || "";
+  const pub = String(body?.pub || "unknown").trim() || "unknown";
+  const article = String(body?.article || "unknown").trim() || "unknown";
+  const slug = String(body?.slug || "").trim() || null;
+  const question = String(body?.question || "").trim() || null;
+  const page_url = String(body?.page_url || "").trim() || null;
+  const referrer = String(body?.referrer || "").trim() || null;
+  const token = String(body?.token || "").trim();
+
+  const secret = (process.env.EMBED_SIGNING_SECRET || "").trim();
 
   // If secret is set, require valid token
   if (secret) {
     if (!verifyToken(pub, token, secret)) {
-      return NextResponse.json({ ok: false, error: "Invalid publisher token" }, { status: 401, headers: cors });
+      return NextResponse.json(
+        { ok: false, error: "Invalid publisher token" },
+        { status: 401, headers: cors }
+      );
     }
   }
 
-  insertEvent({
+  const tsRaw = Number(body?.ts);
+  const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw : Date.now();
+
+  // ✅ FIX: await DB write + store richer fields (so stats/dashboard can be accurate later)
+  await insertEvent({
     event,
-    slug: body?.slug,
-    question: body?.question,
+    slug,
+    question,
     pub,
-    article: body?.article,
-    page_url: body?.page_url,
-    referrer: body?.referrer,
-    ts: body?.ts,
+    article,
+    page_url,
+    referrer,
+    ts,
   });
 
   return NextResponse.json({ ok: true }, { headers: cors });

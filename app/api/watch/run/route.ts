@@ -56,16 +56,32 @@ async function fetchMarket(slug: string) {
   return Array.isArray(data) ? data[0] : data;
 }
 
-export async function POST(req: Request) {
-  const adminKey = req.headers.get("x-admin-key") || "";
-  if (!process.env.ADMIN_API_KEY) {
-    return NextResponse.json({ error: "Missing ADMIN_API_KEY" }, { status: 500 });
-  }
-  if (adminKey !== process.env.ADMIN_API_KEY) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+function getBearerToken(req: Request) {
+  const h = req.headers.get("authorization") || "";
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m?.[1]?.trim() || "";
+}
+
+function authorize(req: Request) {
+  const adminKey = (req.headers.get("x-admin-key") || "").trim();
+  const bearer = getBearerToken(req);
+
+  const hasAdmin = !!process.env.ADMIN_API_KEY;
+  const hasCron = !!process.env.CRON_SECRET;
+
+  if (!hasAdmin && !hasCron) {
+    return { ok: false, status: 500, error: "Missing ADMIN_API_KEY and CRON_SECRET" };
   }
 
-  const slugs = listDistinctEvidenceSlugs(1000);
+  const okAdmin = hasAdmin && adminKey === String(process.env.ADMIN_API_KEY);
+  const okCron = hasCron && bearer === String(process.env.CRON_SECRET);
+
+  if (okAdmin || okCron) return { ok: true as const };
+  return { ok: false as const, status: 401, error: "Unauthorized" };
+}
+
+async function runWatcher() {
+  const slugs = await (listDistinctEvidenceSlugs as any)(1000);
   const now = Date.now();
 
   const changes: any[] = [];
@@ -73,10 +89,10 @@ export async function POST(req: Request) {
 
   const priceJump = Number(process.env.WATCH_PRICE_JUMP || "0"); // e.g. 0.15
 
-  for (const slug of slugs) {
+  for (const slug of slugs as string[]) {
     checked++;
 
-    const prev = getWatchRow(slug) as any;
+    const prev = await (getWatchRow as any)(slug);
     const prevMarket = safeParse(prev?.last_market_json);
 
     const prevDesc = String(prevMarket?.description || "");
@@ -94,7 +110,7 @@ export async function POST(req: Request) {
 
     if (!market) {
       if (prev) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "market_missing",
           old_value: "present",
@@ -104,7 +120,7 @@ export async function POST(req: Request) {
         changes.push({ slug, kind: "market_missing" });
       }
 
-      upsertWatchRow({
+      await (upsertWatchRow as any)({
         slug,
         question: prev?.question ?? null,
         last_resolution_source: prev?.last_resolution_source ?? null,
@@ -121,7 +137,7 @@ export async function POST(req: Request) {
     const resolutionSource = norm(market?.resolutionSource);
     const active = market?.active === true ? 1 : 0;
     const closed = market?.closed === true ? 1 : 0;
-    const updatedAt = norm(market?.updatedAt); // still stored, but NOT alerted on
+    const updatedAt = norm(market?.updatedAt); // stored, but NOT alerted on
 
     const restricted = market?.restricted === true ? 1 : 0;
     const endDate = firstEventEndDate(market);
@@ -136,7 +152,7 @@ export async function POST(req: Request) {
 
     // baseline (first time)
     if (!prev) {
-      insertAlert({
+      await (insertAlert as any)({
         slug,
         kind: "watch_initialized",
         old_value: null,
@@ -156,7 +172,7 @@ export async function POST(req: Request) {
       // question change
       const prevQ = norm(prev.question);
       if (prevQ !== question) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "question_changed",
           old_value: prevQ,
@@ -169,7 +185,7 @@ export async function POST(req: Request) {
       // resolution source change
       const prevRes = norm(prev.last_resolution_source);
       if (prevRes !== resolutionSource) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "resolution_source_changed",
           old_value: prevRes,
@@ -183,7 +199,7 @@ export async function POST(req: Request) {
       const prevStatus = `${prev.last_active ?? ""}/${prev.last_closed ?? ""}`;
       const newStatus = `${active}/${closed}`;
       if (prevStatus !== newStatus) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "status_changed",
           old_value: prevStatus,
@@ -195,7 +211,7 @@ export async function POST(req: Request) {
 
       // restricted change
       if (prevRestricted !== restricted) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "restricted_changed",
           old_value: String(prevRestricted),
@@ -207,7 +223,7 @@ export async function POST(req: Request) {
 
       // end date change
       if (prevEndDate !== endDate) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "end_date_changed",
           old_value: prevEndDate,
@@ -221,7 +237,7 @@ export async function POST(req: Request) {
       const prevOutSig = prevOutcomes ? JSON.stringify(prevOutcomes) : null;
       const outSig = outcomes ? JSON.stringify(outcomes) : null;
       if (prevOutSig !== outSig) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "outcomes_changed",
           old_value: prevOutSig,
@@ -233,7 +249,7 @@ export async function POST(req: Request) {
 
       // rules text change (description)
       if (prevDescSig !== descSig) {
-        insertAlert({
+        await (insertAlert as any)({
           slug,
           kind: "description_changed",
           old_value: prevDescSig,
@@ -247,7 +263,7 @@ export async function POST(req: Request) {
       if (priceJump > 0 && typeof prevYes === "number" && typeof yes === "number") {
         const d = Math.abs(yes - prevYes);
         if (d >= priceJump) {
-          insertAlert({
+          await (insertAlert as any)({
             slug,
             kind: "yes_price_jump",
             old_value: String(prevYes),
@@ -257,11 +273,9 @@ export async function POST(req: Request) {
           changes.push({ slug, kind: "yes_price_jump" });
         }
       }
-
-      // ❌ removed: updated_at_changed (too noisy)
     }
 
-    upsertWatchRow({
+    await (upsertWatchRow as any)({
       slug,
       question,
       last_resolution_source: resolutionSource,
@@ -276,9 +290,21 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     checked,
-    slugs: slugs.length,
+    slugs: (slugs as any[])?.length ?? 0,
     changeCount: changes.length,
     changes,
     ranAt: now,
   });
+}
+
+export async function POST(req: Request) {
+  const a = authorize(req);
+  if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
+  return runWatcher();
+}
+
+export async function GET(req: Request) {
+  const a = authorize(req);
+  if (!a.ok) return NextResponse.json({ error: a.error }, { status: a.status });
+  return runWatcher();
 }

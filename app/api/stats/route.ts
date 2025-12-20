@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   const pub = url.searchParams.get("pub") || "";
   const article = url.searchParams.get("article") || "";
 
-  const data = getStats(
+  const data = await getStats(
     Number.isFinite(days) && days > 0 ? days : 7,
     pub || undefined,
     article || undefined

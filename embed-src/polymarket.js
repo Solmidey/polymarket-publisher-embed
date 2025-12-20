@@ -1,139 +1,205 @@
-(() => {
-  const scriptSrc = (() => {
-    const cs = document.currentScript;
-    if (cs && cs.src) return cs.src;
-    const scripts = document.getElementsByTagName("script");
-    const last = scripts[scripts.length - 1];
-    return (last && last.src) ? last.src : "";
+(function () {
+  "use strict";
+
+  function getScriptSrc() {
+    try {
+      var cs = document.currentScript;
+      if (cs && cs.src) return cs.src;
+      var scripts = document.getElementsByTagName("script");
+      var last = scripts[scripts.length - 1];
+      return last && last.src ? last.src : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  var scriptSrc = getScriptSrc();
+  var ORIGIN = (function () {
+    try {
+      if (scriptSrc) return new URL(scriptSrc, window.location.href).origin;
+      return window.location.origin;
+    } catch (e) {
+      return window.location.origin;
+    }
   })();
 
-  // works for both absolute and relative script src
-  const base = scriptSrc ? new URL(scriptSrc, window.location.href).origin : window.location.origin;
-
   function postTrack(payload) {
-    // Avoid spamming 401s if token is missing
-    if (!payload?.token) return;
+    if (!payload || !payload.token) return;
 
     try {
-      fetch(`${base}/api/track`, {
+      fetch(ORIGIN + "/api/track", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
         mode: "cors",
-      }).catch(() => {});
-    } catch {}
+      }).catch(function () {});
+    } catch (e) {}
   }
 
-  const __PM_ORIGIN = (() => {
-      try {
-        return new URL((document.currentScript && document.currentScript.src) || location.href).origin;
-      } catch {
-        return location.origin || "";
-      }
-    })();
-
-    const els = document.querySelectorAll(".pm-card");
-    if (!els.length) return;
-
-  els.forEach(async (el) => {
-    const slugRaw = el.getAttribute("data-slug") || "";
-    const pub = el.getAttribute("data-pub") || "unknown";
-    const article = el.getAttribute("data-article") || "unknown";
-    const token = el.getAttribute("data-token") || "";
-
-    if (!slugRaw) {
-      el.innerHTML = `<div style="font-family:system-ui">Missing data-slug</div>`;
-      return;
-    }
-
-    el.innerHTML = `<div style="font-family:system-ui">Loading market…</div>`;
-
+  function parseArrayMaybeJson(v) {
     try {
-      const r = await fetch(`${base}/api/gamma/market?slug=${encodeURIComponent(slugRaw)}`, { mode: "cors" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const m = await r.json();
+      if (Array.isArray(v)) return v;
+      if (typeof v === "string" && v.trim()) return JSON.parse(v);
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
 
-      const outcomes = Array.isArray(m.outcomes) ? m.outcomes : JSON.parse(m.outcomes || "[]");
-      const prices = Array.isArray(m.outcomePrices) ? m.outcomePrices : JSON.parse(m.outcomePrices || "[]");
+  function setHtml(el, html) {
+    el.innerHTML = html;
+  }
 
-      const tradeUrl =
-        `${base}/trade/${encodeURIComponent(slugRaw)}?pub=${encodeURIComponent(pub)}&article=${encodeURIComponent(article)}`;
+  function safeText(v) {
+    return String(v == null ? "" : v);
+  }
 
-      const common = {
-        slug: slugRaw,
-        question: m.question || "",
-        pub,
-        article,
-        token,
-        page_url: window.location.href,
-        referrer: document.referrer || "",
-      };
+  var cards = document.querySelectorAll(".pm-card");
+  if (!cards || !cards.length) return;
 
-      // Impression
-      postTrack({ event: "impression", ts: Date.now(), ...common });
+  cards.forEach(function (el) {
+    (async function () {
+      var slugRaw = (el.getAttribute("data-slug") || "").trim();
+      var pub = (el.getAttribute("data-pub") || "unknown").trim();
+      var article = (el.getAttribute("data-article") || "unknown").trim();
+      var token = (el.getAttribute("data-token") || "").trim();
 
-      // Render
-      el.innerHTML = `
-        <div style="font-family:system-ui;max-width:520px;border:1px solid #e5e7eb;border-radius:14px;padding:14px">
-          <div style="font-weight:800;margin-bottom:10px">${m.question || slugRaw}</div>
-          <div style="display:flex;gap:10px;margin:10px 0">
-            <button class="pm-go" data-go="${tradeUrl}" style="flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#fff;text-align:left;cursor:pointer">
-              <div style="font-weight:700">${outcomes[0] ?? "YES"}</div>
-              <div style="opacity:.7">${prices[0] ?? "?"}</div>
-            </button>
-            <button class="pm-go" data-go="${tradeUrl}" style="flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#fff;text-align:left;cursor:pointer">
-              <div style="font-weight:700">${outcomes[1] ?? "NO"}</div>
-              <div style="opacity:.7">${prices[1] ?? "?"}</div>
-            </button>
-          </div>
-          <button class="pm-go" data-go="${tradeUrl}" style="width:100%;border:0;border-radius:12px;padding:10px;background:#111827;color:#fff;font-weight:800;cursor:pointer">
-            Trade
-          </button>
-        </div>
-      `;
+      if (!slugRaw) {
+        setHtml(el, '<div style="font-family:system-ui">Missing data-slug</div>');
+        return;
+      }
 
-      // Risk + Evidence badge
-      (async () => {
+      setHtml(el, '<div style="font-family:system-ui">Loading market…</div>');
+
+      try {
+        var marketRes = await fetch(
+          ORIGIN + "/api/gamma/market?slug=" + encodeURIComponent(slugRaw),
+          { mode: "cors" }
+        );
+        if (!marketRes.ok) throw new Error("HTTP " + marketRes.status);
+
+        var market = await marketRes.json();
+
+        var outcomes = parseArrayMaybeJson(market.outcomes);
+        var prices = parseArrayMaybeJson(market.outcomePrices);
+
+        var tradeUrl =
+          ORIGIN +
+          "/trade/" +
+          encodeURIComponent(slugRaw) +
+          "?pub=" +
+          encodeURIComponent(pub) +
+          "&article=" +
+          encodeURIComponent(article);
+
+        var common = {
+          slug: slugRaw,
+          question: safeText(market.question || ""),
+          pub: pub,
+          article: article,
+          token: token,
+          page_url: window.location.href,
+          referrer: document.referrer || "",
+        };
+
+        postTrack({
+          event: "impression",
+          ts: Date.now(),
+          slug: common.slug,
+          pub: common.pub,
+          article: common.article,
+          token: common.token,
+        });
+
+        setHtml(
+          el,
+          [
+            '<div style="font-family:system-ui;max-width:520px;border:1px solid #e5e7eb;border-radius:14px;padding:14px">',
+            '  <div style="font-weight:800;margin-bottom:10px">' +
+              safeText(market.question || slugRaw) +
+              "</div>",
+            '  <div style="display:flex;gap:10px;margin:10px 0">',
+            '    <button class="pm-go" data-go="' +
+              tradeUrl +
+              '" style="flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#fff;text-align:left;cursor:pointer">',
+            '      <div style="font-weight:700">' +
+              safeText(outcomes[0] != null ? outcomes[0] : "YES") +
+              "</div>",
+            '      <div style="opacity:.7">' +
+              safeText(prices[0] != null ? prices[0] : "?") +
+              "</div>",
+            "    </button>",
+            '    <button class="pm-go" data-go="' +
+              tradeUrl +
+              '" style="flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#fff;text-align:left;cursor:pointer">',
+            '      <div style="font-weight:700">' +
+              safeText(outcomes[1] != null ? outcomes[1] : "NO") +
+              "</div>",
+            '      <div style="opacity:.7">' +
+              safeText(prices[1] != null ? prices[1] : "?") +
+              "</div>",
+            "    </button>",
+            "  </div>",
+            '  <button class="pm-go" data-go="' +
+              tradeUrl +
+              '" style="width:100%;border:0;border-radius:12px;padding:10px;background:#111827;color:#fff;font-weight:800;cursor:pointer">Trade</button>',
+            "</div>",
+          ].join("\n")
+        );
+
         try {
-          if (!__PM_ORIGIN) return;
           if (el.dataset.pmBadged === "1") return;
           el.dataset.pmBadged = "1";
+
           el.style.position = el.style.position || "relative";
 
-          const rr = await fetch(
-            __PM_ORIGIN + "/api/embed/meta?slug=" + encodeURIComponent(slugRaw),
+          var metaRes = await fetch(
+            ORIGIN + "/api/embed/meta?slug=" + encodeURIComponent(slugRaw),
             { cache: "no-store" }
           );
-          if (!rr.ok) return;
-          const meta = await rr.json().catch(() => null);
-          if (!meta) return;
+          if (metaRes.ok) {
+            var meta = await metaRes.json().catch(function () {
+              return null;
+            });
+            if (meta) {
+              var level =
+                String(meta.risk && meta.risk.level ? meta.risk.level : "LOW")
+                  .toUpperCase();
+              var evCount = Number(meta.evidenceCount || 0);
 
-          const level = String(meta?.risk?.level || "LOW").toUpperCase();
-          const evidence = Number(meta?.evidenceCount || 0);
+              var a = document.createElement("a");
+              a.href = ORIGIN + "/risk/" + encodeURIComponent(slugRaw);
+              a.target = "_blank";
+              a.rel = "noreferrer";
+              a.textContent = "Risk: " + level + " · Evidence: " + evCount;
+              a.style.cssText =
+                "position:absolute;top:10px;right:10px;font:800 12px/1 system-ui;padding:6px 10px;border-radius:999px;background:#0b1220;color:#fff;text-decoration:none;opacity:.92;z-index:9999";
+              el.appendChild(a);
+            }
+          }
+        } catch (e) {}
 
-          const a = document.createElement("a");
-          a.href = __PM_ORIGIN + "/risk/" + encodeURIComponent(slugRaw);
-          a.target = "_blank";
-          a.rel = "noreferrer";
-          a.textContent = "Risk: " + level + " · Evidence: " + evidence;
-          a.style.cssText =
-            "position:absolute;top:10px;right:10px;font:800 12px/1 system-ui;" +
-            "padding:6px 10px;border-radius:999px;background:#0b1220;color:#fff;" +
-            "text-decoration:none;opacity:.92;z-index:9999";
-          el.appendChild(a);
-        } catch {}
-      })();
+        el.querySelectorAll(".pm-go").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            postTrack({
+              event: "click",
+              ts: Date.now(),
+              slug: common.slug,
+              pub: common.pub,
+              article: common.article,
+              token: common.token,
+            });
 
-      el.querySelectorAll(".pm-go").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          // Click
-          postTrack({ event: "click", ts: Date.now(), ...common });
-          window.open(btn.getAttribute("data-go"), "_blank");
+            window.open(btn.getAttribute("data-go"), "_blank");
+          });
         });
-      });
-    } catch (e) {
-      el.innerHTML = `<div style="font-family:system-ui">Couldn’t load this market. Check the slug.</div>`;
-      console.error(e);
-    }
+      } catch (e) {
+        setHtml(
+          el,
+          '<div style="font-family:system-ui">Couldn’t load this market. Check the slug.</div>'
+        );
+        console.error(e);
+      }
+    })();
   });
 })();
