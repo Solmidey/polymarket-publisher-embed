@@ -89,12 +89,30 @@ function computeRisk(market: any, alerts: any[]) {
 }
 
 export default async function RiskPage({ params }: { params: Promise<{ slug: string }> }) {
+  
   const p = await params;
   const slug = decodeURIComponent(p?.slug || "").trim();
-
-  const evidence = (slug ? (listEvidenceBySlug(slug, 25) as any[]) : []) ?? [];
-  const alerts = (slug ? (listAlertsBySlug(slug, 50) as any[]) : []) ?? [];
-
+  const evidenceRaw = slug ? await listEvidenceBySlug(slug, 25) : [];
+  const evidence = (Array.isArray(evidenceRaw) ? evidenceRaw : []).map((r: any) => ({
+    id: String(r.id),
+    slug: String(r.slug ?? ""),
+    created_at: Number(r.created_at ?? 0),
+    saved_at: Number(r.saved_at ?? r.created_at ?? 0),
+    resolution_url: r.resolution_url == null ? null : String(r.resolution_url),
+    question: r.question == null ? null : String(r.question),
+    resolution_source: r.resolution_source == null ? null : String(r.resolution_source),
+    manual_evidence_url: r.manual_evidence_url == null ? null : String(r.manual_evidence_url),
+    notes: r.notes == null ? null : String(r.notes),
+  }));
+  const alertsRaw = slug ? await listAlertsBySlug(slug, 50) : [];
+  const alerts = (Array.isArray(alertsRaw) ? alertsRaw : []).map((r: any) => ({
+    id: String(r.id),
+    slug: String(r.slug ?? ""),
+    kind: String(r.kind ?? ""),
+    old_value: r.old_value == null ? null : String(r.old_value),
+    new_value: r.new_value == null ? null : String(r.new_value),
+    created_at: Number(r.created_at ?? 0),
+  }));
   const market = slug ? await fetchMarket(slug) : null;
 
   const question = norm(market?.question) || (slug ? slug : "Risk");
@@ -217,7 +235,7 @@ export default async function RiskPage({ params }: { params: Promise<{ slug: str
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
             {evidence.map((e) => (
-              <div key={e.id} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 12 }}>
+              <div key={String(e.id)} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 12 }}>
                 <div style={{ fontSize: 12, opacity: 0.7 }}>#{e.id} • {fmt(Number(e.created_at))}</div>
                 <div style={{ fontWeight: 900, marginTop: 4 }}>{e.question || "(question missing)"}</div>
                 <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9, display: "grid", gap: 4 }}>
@@ -244,7 +262,7 @@ export default async function RiskPage({ params }: { params: Promise<{ slug: str
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
             {alerts.map((a) => (
-              <div key={a.id} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 12 }}>
+              <div key={String(a.id)} style={{ border: "1px solid #e5e7eb", borderRadius: 14, padding: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div style={{ fontSize: 12, opacity: 0.7 }}>#{a.id} • {fmt(Number(a.created_at))}</div>
                   <div style={{ fontSize: 12, padding: "2px 8px", borderRadius: 999, border: "1px solid #e5e7eb" }}>
