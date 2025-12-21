@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { insertEvent } from "../../../lib/db";
+import { insertTrack } from "../../../lib/db";
 
 export const runtime = "nodejs";
 
@@ -78,14 +78,9 @@ export async function POST(req: Request) {
   const pub = String(body?.pub || "unknown").trim() || "unknown";
   const article = String(body?.article || "unknown").trim() || "unknown";
   const slug = String(body?.slug || "").trim() || null;
-  const question = String(body?.question || "").trim() || null;
-  const page_url = String(body?.page_url || "").trim() || null;
-  const referrer = String(body?.referrer || "").trim() || null;
   const token = String(body?.token || "").trim();
 
   const secret = (process.env.EMBED_SIGNING_SECRET || "").trim();
-
-  // If secret is set, require valid token
   if (secret) {
     if (!verifyToken(pub, token, secret)) {
       return NextResponse.json(
@@ -98,17 +93,7 @@ export async function POST(req: Request) {
   const tsRaw = Number(body?.ts);
   const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw : Date.now();
 
-  // ✅ FIX: await DB write + store richer fields (so stats/dashboard can be accurate later)
-  await insertEvent({
-    event,
-    slug,
-    question,
-    pub,
-    article,
-    page_url,
-    referrer,
-    ts,
-  });
+  await insertTrack({ pub, article, slug, event, ts });
 
   return NextResponse.json({ ok: true }, { headers: cors });
 }
