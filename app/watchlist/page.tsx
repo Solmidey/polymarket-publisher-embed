@@ -9,7 +9,7 @@ function safeJson(s: any) {
 export const runtime = "nodejs";
 
 export default async function WatchlistPage() {
-  const slugs = listDistinctEvidenceSlugs(200);
+  const slugs = await listDistinctEvidenceSlugs(200);
 
   const rows = slugs.map((slug) => {
     const watch = getWatchRow(slug) as any;
